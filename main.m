@@ -1,12 +1,35 @@
-clear all; close all; clc;
+clear all; close all; clc; clear uifig
 
 % Initialize the seed and random number generator
-rng("default");
+rng(0);
 
 % Create the grid with obstacles
 N = 20;
 n_obs = 30;
 simulation_steps = 0;
+sensor_direction = 4;
+
+% Create an initial grid to start
+grid = create_grid(N, n_obs);
+
+% Create a UI to ask for the size of the grid, 4 or 8 movement directions 
+uifigure('HandleVisibility', 'on');
+fig = uifigure('Name', 'Simulation Configuration', 'Position', [300 300 600 600]);
+uicontrol(fig, 'Style', 'text', 'String', 'Grid layout size:', 'Position',        [1 380 200 200], 'Callback', @grid_size_set);
+grid_N = uicontrol(fig, 'Style', 'popupmenu', 'String', ["20","30"], 'Position',     [210 560 80 20]);
+uicontrol(fig, 'Style', 'text', 'String', 'Obstacle density:', 'Position',        [5 350 200 200]);
+obstacle_N = uicontrol(fig, 'Style', 'edit', 'String', num2str(n_obs), 'Position',                       [210 530 50 20]);
+uicontrol(fig, 'Style', 'text', 'String', 'Robot sensor directions:', 'Position', [26 320 200 200]);
+directions_N = uicontrol(fig, 'Style', 'popupmenu', 'String', ["4","8"], 'Position',             [210 500 50 20]);
+uicontrol(fig, 'Style', 'pushbutton', 'String', "Generate Map", 'Position',       [200 450 100 30], 'Callback', @generate_map_btn_click);
+uicontrol(fig, 'Style', 'pushbutton', 'String', "Simulate", 'Position',           [320 450 100 30]);
+grid_ui = uipanel(fig,'Title','Map', 'Position', [100 20 400 400]);
+grid_ax = uiaxes(grid_ui);
+
+% Display the empty grid
+display_grid(grid_ax, grid, [-1 -1]);
+
+%%
 
 % Create the grid where the robot will navigate
 grid = create_grid(N, n_obs);
@@ -51,6 +74,42 @@ iterations_text = uicontrol(p,'Style', 'text', 'String', sprintf('Number of Iter
 t = timer('TimerFcn',@next_step_btn_click, 'ExecutionMode', 'fixedRate', 'Period', 1, 'BusyMode','drop');
 
 %% Function definitions 
+
+function generate_map_btn_click(src, event)
+
+% Get the values from the workspace
+grid = evalin('base', 'grid');
+grid_ax = evalin('base', 'grid_ax');
+grid_N = evalin('base', 'grid_N');
+obstacle_N = evalin('base', 'obstacle_N');
+
+% Get the parameters from the UI
+N = str2double(grid_N.String{grid_N.Value});
+n_obs = str2double(obstacle_N.String);
+    
+% Generate a new grid according to the defined parameters
+grid = create_grid(N, n_obs);
+
+% Save the parameters to the workspace
+% Update the value of grid size N in the workspace
+assignin('base', 'N', N);
+assignin('base', 'n_obs', n_obs);
+assignin('base', 'grid', grid);
+
+% Display the generated grid with the correct size
+display_grid(grid_ax, grid, [-1 -1]);
+
+end
+
+function simulate_btn_click(src, event)
+
+% Get the ui figure from the workspace
+fig = evalin('base', 'fig');
+
+close(fig)
+
+end
+
 function start_btn_click(~,~)
 
 % Get the timer from the workspace and stop it
