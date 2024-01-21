@@ -1,113 +1,232 @@
 clear all; close all; clc; clear uifig
+% Authors: Marcelo Fialho Jacinto (marcelo.jacinto@tecnico.ulisboa.pt)
+%          Jose Pedro Gomes (josepgomes@tecnico.ulisboa.pt)
+% Ph.D. course on Estimation and Classification (Project)
 
 % Initialize the seed and random number generator
-rng(0);
+rng(10);
 
 % Create the grid with obstacles
 N = 20;
-n_obs = 30;
+n_obs = 25;
 simulation_steps = 0;
 sensor_direction = 4;
-
-% Create an initial grid to start
-grid = create_grid(N, n_obs);
+bitflip_prob = 0;       % Internal model of the probability of bitflip
+bitflip_sensor = 0;     % The actual sensor bitflip probability
+                        % This is done, because in real-life, our model
+                        % is never models perfectly the sensor
+timer_period = 1;
 
 % Create a UI to ask for the size of the grid, 4 or 8 movement directions 
-uifigure('HandleVisibility', 'on');
-fig = uifigure('Name', 'Simulation Configuration', 'Position', [300 300 600 600]);
-uicontrol(fig, 'Style', 'text', 'String', 'Grid layout size:', 'Position',        [1 380 200 200], 'Callback', @grid_size_set);
-grid_N = uicontrol(fig, 'Style', 'popupmenu', 'String', ["20","30"], 'Position',     [210 560 80 20]);
-uicontrol(fig, 'Style', 'text', 'String', 'Obstacle density:', 'Position',        [5 350 200 200]);
-obstacle_N = uicontrol(fig, 'Style', 'edit', 'String', num2str(n_obs), 'Position',                       [210 530 50 20]);
-uicontrol(fig, 'Style', 'text', 'String', 'Robot sensor directions:', 'Position', [26 320 200 200]);
-directions_N = uicontrol(fig, 'Style', 'popupmenu', 'String', ["4","8"], 'Position',             [210 500 50 20]);
-uicontrol(fig, 'Style', 'pushbutton', 'String', "Generate Map", 'Position',       [200 450 100 30], 'Callback', @generate_map_btn_click);
-uicontrol(fig, 'Style', 'pushbutton', 'String', "Simulate", 'Position',           [320 450 100 30]);
-grid_ui = uipanel(fig,'Title','Map', 'Position', [100 20 400 400]);
-grid_ax = uiaxes(grid_ui);
+fig = uifigure('Name', 'Simulation Configuration', 'HandleVisibility', 'on');
+grid_layout = uigridlayout(fig, [7,2]);
+grid_layout.RowHeight = {22,22,22,22,22,22,22,'1x'};
+grid_layout.ColumnWidth = {150,'1x'};
 
-% Display the empty grid
-display_grid(grid_ax, grid, [-1 -1]);
+p = uilabel(grid_layout, 'Text', 'Grid layout size (NxN):');
+p.Layout.Row = 1;
+p.Layout.Column = 1;
 
-%%
+grid_N = uieditfield(grid_layout, 'numeric');
+grid_N.Value = 20;
+grid_N.Limits = [20 50];
+grid_N.Layout.Row = 1;
+grid_N.Layout.Column = 2;
 
-% Create the grid where the robot will navigate
-grid = create_grid(N, n_obs);
+p2 = uilabel(grid_layout, 'Text', 'Obstacle density:');
+p2.Layout.Row = 2;
+p2.Layout.Column = 1;
 
-% Compute the transition matrix A from the prior grid
-A = compute_transition_matrix(grid);
-B = compute_observation2_matrix(grid);
+obstacle_N = uieditfield(grid_layout, 'numeric');
+obstacle_N.Value = n_obs;
+obstacle_N.Limits = [0 100];
+obstacle_N.Layout.Row = 2;
+obstacle_N.Layout.Column = 2;
 
-% Place the robot in some random initial position
-robot_pos = [-1,-1];
+p3 = uilabel(grid_layout, 'Text', 'Robot sensor directions:');
+p3.Layout.Row = 3;
+p3.Layout.Column = 1;
 
-% Create the probability matrix that will hold the probability of each cell
-prob_matrix = init_cell_prob(grid);
+directions_N = uidropdown(grid_layout, 'Items', ["4","8"]);
+directions_N.Layout.Row = 3;
+directions_N.Layout.Column = 2;
 
-% Create a new figure where the UI will be displayed
-fig = uifigure('Name', 'Robot Motion and Localization', 'Position', [200, 200, 900, 500]);
-grid_layout = uigridlayout(fig,[3 2]);
+p4 = uilabel(grid_layout, 'Text', 'Model 1 Bit-flip probability:');
+p4.Layout.Row = 4;
+p4.Layout.Column = 1;
 
-p = uipanel(grid_layout,'Title','Configuration');
-p.Layout.Row = 3;
-p.Layout.Column = [1 2];
+bit_flip_prob_N = uieditfield(grid_layout, 'numeric');
+bit_flip_prob_N.Value = bitflip_prob;
+bit_flip_prob_N.Limits = [0 1];
+bit_flip_prob_N.Layout.Row = 4;
+bit_flip_prob_N.Layout.Column = 2;
 
-grid_ax = uiaxes(grid_layout);
-grid_ax.Layout.Row = [1 2];
-grid_ax.Layout.Column = 1;
+p5 = uilabel(grid_layout, 'Text', 'Sensor 1 Bit-flip probability:');
+p5.Layout.Row = 5;
+p5.Layout.Column = 1;
 
-heat_map_ax = uipanel(grid_layout);
-heat_map_ax.Layout.Row = [1 2];
-heat_map_ax.Layout.Column = 2;
+bit_flip_sensor_N = uieditfield(grid_layout, 'numeric');
+bit_flip_sensor_N.Value = bitflip_sensor;
+bit_flip_sensor_N.Limits = [0 1];
+bit_flip_sensor_N.Layout.Row = 5;
+bit_flip_sensor_N.Layout.Column = 2;
 
-% Setup the robot grid for the first time
-display_grid(grid_ax, grid, robot_pos);
-display_heatmap(heat_map_ax, prob_matrix);
+p6 = uilabel(grid_layout, 'Text', 'Timer period (s):');
+p6.Layout.Row = 6;
+p6.Layout.Column = 1;
 
-% Create the button interface to control the simulation
-start_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Start', 'Position', [20, 20, 100, 30], 'Callback', @start_btn_click);
-pause_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Pause', 'Position', [130, 20, 100, 30], 'Callback', @pause_btn_click);
-next_step_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Next Step', 'Position', [240, 20, 100, 30], 'Callback', @next_step_btn_click);
-iterations_text = uicontrol(p,'Style', 'text', 'String', sprintf('Number of Iterations: %d', simulation_steps), 'Position', [5, 50, 200, 30]);
+timer_period_N = uieditfield(grid_layout, 'numeric');
+timer_period_N.Value = timer_period;
+timer_period_N.Limits = [0.1 5];
+timer_period_N.Layout.Row = 6;
+timer_period_N.Layout.Column = 2;
 
-% Create a timer to execute the motion of the robot automatically
-t = timer('TimerFcn',@next_step_btn_click, 'ExecutionMode', 'fixedRate', 'Period', 1, 'BusyMode','drop');
+p5 = uibutton(grid_layout, 'Text', "Generate Map", 'ButtonPushedFcn', @generate_map_btn_click);
+p5.Layout.Row = 7;
+p6.Layout.Column = [1 2];
 
 %% Function definitions 
 
 function generate_map_btn_click(src, event)
 
 % Get the values from the workspace
-grid = evalin('base', 'grid');
-grid_ax = evalin('base', 'grid_ax');
 grid_N = evalin('base', 'grid_N');
 obstacle_N = evalin('base', 'obstacle_N');
+directions_N = evalin('base', 'directions_N');
+bit_flip_prob_N = evalin('base', 'bit_flip_prob_N');
+bit_flip_sensor_N = evalin('base', 'bit_flip_sensor_N');
+timer_period_N = evalin('base', 'timer_period_N');
+fig = evalin('base', 'fig');
 
 % Get the parameters from the UI
-N = str2double(grid_N.String{grid_N.Value});
-n_obs = str2double(obstacle_N.String);
-    
-% Generate a new grid according to the defined parameters
-grid = create_grid(N, n_obs);
+N = grid_N.Value;
+n_obs = obstacle_N.Value;
+sensor_direction = str2double(directions_N.Value);
+bitflip_prob = bit_flip_prob_N.Value;
+bitflip_sensor = bit_flip_sensor_N.Value;
+timer_period = timer_period_N.Value;
 
 % Save the parameters to the workspace
 % Update the value of grid size N in the workspace
 assignin('base', 'N', N);
 assignin('base', 'n_obs', n_obs);
+assignin('base', 'sensor_direction', sensor_direction);
+assignin('base', 'bitflip_prob', bitflip_prob);
+assignin('base', 'bitflip_sensor', bitflip_sensor);
+assignin('base', 'timer_period', timer_period);
+    
+% Generate a new grid according to the defined parameters
+grid = create_grid(N, n_obs);
 assignin('base', 'grid', grid);
 
-% Display the generated grid with the correct size
-display_grid(grid_ax, grid, [-1 -1]);
+% Close the figure and create a new one where the generated map is shown
+% and editable
+close(fig);
+
+% Create a new figure where the generated map is shown and can be edited
+fig = figure('Name', 'Map Configuration', 'HandleVisibility', 'on');
+grid_ax = gca;
+display_grid(grid_ax, grid, [-1 -1], 'Click to edit the map', 1);
+grid_ax = gca;
+set(fig, 'CloseRequestFcn', @close_map_callback);
+set(grid_ax, 'ButtonDownFcn', @edit_map_callback);
+assignin('base', 'fig', fig);
+assignin('base', 'grid_ax', grid_ax);
 
 end
 
-function simulate_btn_click(src, event)
+function edit_map_callback(src, event)
+    % Get the current point where the click occurred
+    currentPoint = get(gca, 'CurrentPoint');
 
-% Get the ui figure from the workspace
-fig = evalin('base', 'fig');
+    % Get the current grid from the workspace 
+    grid = evalin('base', 'grid');
+    
+    % Extract x and y coordinates
+    xCoord = round(currentPoint(1, 1));
+    yCoord = round(currentPoint(1, 2));
 
-close(fig)
+    % Change the value if the cell is occupied or not
+    if grid(xCoord, yCoord) == 0
+        grid(xCoord, yCoord) = 1;
+    else
+        grid(xCoord, yCoord) = 0;
+    end
+    
+    % Display the clicked position
+    disp(['Clicked position: (' num2str(xCoord) ', ' num2str(yCoord) ')']);
 
+    % Update the grid in the workspace
+    assignin('base', 'grid', grid);
+
+    % Display the new grid
+    grid_ax = gca;
+    display_grid(grid_ax, grid, [-1 -1], 'Click to edit the map', 1);
+end
+
+function close_map_callback(src, event)
+
+    % Delete the actual figure and close it
+    delete(gcf);
+    
+    % ---------------------------------------------------------------
+    % Start the actual simulation here
+    % ---------------------------------------------------------------
+    grid = evalin('base', 'grid');
+    simulation_steps = evalin('base', 'simulation_steps');
+    sensor_direction = evalin('base', 'sensor_direction');
+    bitflip_prob = evalin('base', 'bitflip_prob');
+    timer_period = evalin('base', 'timer_period');
+
+    % Compute the transition matrix A from the prior grid
+    A = compute_transition_matrix(grid);
+    B = compute_observation_matrix(grid, sensor_direction, bitflip_prob);
+
+    % Place the robot in some random initial position
+    robot_pos = [-1,-1];
+
+    % Create the probability matrix that will hold the probability of each cell
+    prob_matrix = init_cell_prob(grid);
+    
+    % Create a new figure where the UI will be displayed
+    fig = uifigure('Name', 'Robot Motion and Localization', 'Position', [200, 200, 900, 500]);
+    grid_layout = uigridlayout(fig,[3 2]);
+    
+    p = uipanel(grid_layout,'Title','Configuration');
+    p.Layout.Row = 3;
+    p.Layout.Column = [1 2];
+    
+    grid_ax = uiaxes(grid_layout);
+    grid_ax.Layout.Row = [1 2];
+    grid_ax.Layout.Column = 1;
+    
+    heat_map_ax = uipanel(grid_layout);
+    heat_map_ax.Layout.Row = [1 2];
+    heat_map_ax.Layout.Column = 2;
+    
+    % Setup the robot grid for the first time
+    display_grid(grid_ax, grid, robot_pos, '', 0);
+    display_heatmap(heat_map_ax, prob_matrix);
+    
+    % Create the button interface to control the simulation
+    start_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Start', 'Position', [20, 20, 100, 30], 'Callback', @start_btn_click);
+    pause_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Pause', 'Position', [130, 20, 100, 30], 'Callback', @pause_btn_click);
+    next_step_button = uicontrol(p,'Style', 'pushbutton', 'String', 'Next Step', 'Position', [240, 20, 100, 30], 'Callback', @next_step_btn_click);
+    iterations_text = uicontrol(p,'Style', 'text', 'String', sprintf('Number of Iterations: %d', simulation_steps), 'Position', [5, 50, 200, 30]);
+    
+    % Save the variables to the workspace
+    assignin('base', 'fig', fig);
+    assignin('base', 'A', A);
+    assignin('base', 'B', B);
+    assignin('base', 'robot_pos', robot_pos);
+    assignin('base', 'prob_matrix', prob_matrix);
+    assignin('base', 'grid_ax', grid_ax);
+    assignin('base', 'heat_map_ax', heat_map_ax);
+    assignin('base', 'iterations_text', iterations_text);
+
+    % Create a timer to execute the motion of the robot automatically
+    t = timer('TimerFcn',@next_step_btn_click, 'ExecutionMode', 'fixedRate', 'Period', timer_period, 'BusyMode','drop');
+    assignin('base', 't', t);
 end
 
 function start_btn_click(~,~)
@@ -146,15 +265,17 @@ simulation_steps = evalin('base', 'simulation_steps');
 iterations_text = evalin('base', 'iterations_text');
 A = evalin('base', 'A');
 B = evalin('base', 'B');
+sensor_direction = evalin('base', 'sensor_direction');
+bitflip_sensor = evalin('base', 'bitflip_sensor');
 
 % Increment the simulation step
 simulation_steps = simulation_steps + 1;
 
 % Perform one simulation step update
-[robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B);
+[robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B, sensor_direction, bitflip_sensor);
 
 % Update the grid visualization
-display_grid(grid_ax, grid, robot_pos);
+display_grid(grid_ax, grid, robot_pos, '', 0);
 display_heatmap(heat_map_ax, prob_matrix);
 iterations_text.String = sprintf('Number of Iterations: %d', simulation_steps);
 
@@ -166,7 +287,7 @@ assignin('base', 'iterations_text', iterations_text);
 
 end
 
-function [robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B)
+function [robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B, sensor_direction, bitflip_sensor)
 
 % If the robot position was not initialized, yet - initialize it
 if robot_pos == [-1 -1]
@@ -179,14 +300,14 @@ else
 end
 
 % Perform a measurement 
-measurement = sensor_model(robot_pos, grid);
+measurement = sensor_model(robot_pos, grid, bitflip_sensor, sensor_direction);
 
 % Compute the probabilities of each cell
-prob_matrix = compute_cell_probabilities(prob_matrix, measurement, A, B, first_step);
+prob_matrix = compute_cell_probabilities(prob_matrix, measurement, A, B, sensor_direction, first_step, grid);
 
 end
 
-function [prob_matrix] = compute_cell_probabilities(prob_matrix, measurement, A, B, first_step)
+function [prob_matrix] = compute_cell_probabilities(prob_matrix, measurement, A, B, sensor_direction, first_step, grid)
 % compute_cell_probabilities - Computes the probability of each cell
 % given the robot measurements of the environment, the probability
 % transition matrix, the measurement matrix and the previous probability
@@ -196,7 +317,7 @@ function [prob_matrix] = compute_cell_probabilities(prob_matrix, measurement, A,
 N = size(A,1);
 
 % Encode the measurements matrix into a measurement index
-obs_index = encode_measurement(measurement);
+obs_index = encode_measurement(measurement, sensor_direction);
 
 % Compute the cell probability using the forward algorithm
 D = diag(B(:, obs_index));
@@ -215,11 +336,19 @@ prob_matrix = reshape(alpha, sqrt(N), sqrt(N));
 
 % Renormalize the probabilities at each step
 total_sum = sum(prob_matrix, 'all');
-prob_matrix = prob_matrix / total_sum;
+
+% Check if the total sum if really really small (almost zero). If so, 
+% all the boxes have almost zero probability therefore we should
+% renormalize everything with equal proability
+if (total_sum ~= 0)
+    prob_matrix = prob_matrix / total_sum;
+else
+    prob_matrix = init_cell_prob(grid);
+end
 
 end
 
-function [sensor_obs] = sensor_model(robot_pos, grid)
+function [sensor_obs] = sensor_model(robot_pos, grid, bitflip_sensor, sensor_direction)
 % sensor_model Implements the robot sensor model
 % robot_pos - [row,col] of the actual robot position
 % grid - the grid of the world with obstacles
@@ -236,9 +365,10 @@ top_corner = robot_pos - 2;
 % Check which cells surrounding the robot are obstacles
 for i=1:3
     for j=1:3
-        % Check if we are outside the grid. If so, place an obstacle
+        % Check if we are outside the grid. If so, measure like an empty
+        % state
         if top_corner(1) + i < 1 || top_corner(2) + j < 1 || top_corner(1) + i > N || top_corner(2) + j > N
-            sensor_obs(i,j) = 1;
+            sensor_obs(i,j) = 0;
         else
             % If we are inside the grid, just check if there is an obstacle or
             % not
@@ -250,6 +380,42 @@ end
 % Clean the position in the middle, because the sensor never measures the
 % middle position
 sensor_obs(2,2) = 0;
+
+% Add sensor noise (possibility of 1 bit-flip)
+if bitflip_sensor ~= 0
+     
+    % Generate a random sample from a binomial distribution to check
+    % whether to flip or not a bit
+    flip = binornd(1, bitflip_sensor);
+    
+    % If we are going to flip a bit, choose from a uniform distribution 
+    % which bit to flip
+    if flip == 1
+        
+        % Get the coordinate randomly where the bit will flip
+        flip_map_4 = [[1 2]; [2 1]; [2 3]; [3 2]];
+        flip_map_8 = [[1 1]; [1 2]; [1 3]; [2 1]; [2 3]; [3 1]; [3 2]; [3 3]];
+        
+        index = round(unifrnd(1,sensor_direction, 1));
+
+        if sensor_direction == 4
+            flip_coord = flip_map_4(index,:);
+        else
+            flip_coord = flip_map_8(index,:);
+        end
+
+        % Flip the bit 
+        disp(['Sensor bit flip at coordinate: (' num2str(flip_coord(1)) ',' num2str(flip_coord(2)) ')']);
+        if sensor_obs(flip_coord) == 0
+            sensor_obs(flip_coord) = 1;
+        else
+            sensor_obs(flip_coord) = 0;
+        end
+
+        
+    end
+end
+
 end
 
 function prob_matrix = init_cell_prob(grid)
@@ -334,8 +500,230 @@ index = round(unifrnd(1,length(free_cells), 1));
 next_pos = cell2mat(free_cells(index));
 end
 
+function [A] = compute_transition_matrix(grid)
+% compute_transition_matrix Compute the transition matrix from the prior
+% map
+% grid - A NxN grid that represents the binary map
+% A - A N^2*N^2 where the rows represent the previous state and the columns
+% represent the next state
 
-function display_grid(ax, grid, robot_pos)
+% Get the size of the grid
+N = size(grid,1);
+
+% Get the possible number of states
+num_states = N*N;
+
+% Compute the transition matrix A from each cell to every other cell
+A = zeros(num_states, num_states);
+
+for i=1:N
+    for j=1:N
+
+        % Get the hypotetical robot position
+        robot_pos = [i j];
+        robot_pos_index = sub2ind([N N], i, j);
+
+        % Check if the cell in the grid has obstacle. If so, we 
+        % say in the transition matrix that the probability of leave such
+        % cell is 0 (just a hack so that A is well behaved and we can pre-alocate memory).
+        if grid(i,j) == 1
+            A(robot_pos_index, robot_pos_index) = 1;
+        % Otherwise, check which other adjacent cells are available and
+        % set their transition probabilities accordingly
+        else
+            
+            % Get the top-left corner of the hypotetical robot position
+            top_corner = robot_pos - 2;
+            free_cells = {};
+            
+            % Check for free cells adjacent to the hypotetical robot pos
+            for k=1:3
+                for m=1:3
+                    % Check if we are outside the grid
+                    if top_corner(1) + k < 1 || top_corner(2) + m < 1 || top_corner(1) + k > N || top_corner(2) + m > N
+                        continue
+                    end
+                    
+                    % Check if the adjacent cell is free
+                    if grid(top_corner(1) + k, top_corner(2) + m) == 0
+                        free_cells = [free_cells, [top_corner(1) + k, top_corner(2) + m]];
+                    end
+                end
+            end
+
+            % Get the probability of transition based on the number of free
+            % adjacent cells
+            prob = 1 / length(free_cells);
+            
+            % Go through the list of free cells
+            for k=1:length(free_cells)
+
+                indices = cell2mat(free_cells(k));
+                
+                % Get the column of the adjacent cell in the transition
+                % matrix A
+                adjcent_cell_index = sub2ind([N N], indices(1), indices(2));
+                
+                % Set the probability in the transition matrix
+                A(robot_pos_index, adjcent_cell_index) = prob;
+            end
+        end
+    end
+end
+end
+
+
+function [B] = compute_observation_matrix(grid, num_observations, prob_1_bit_flip)
+
+assert(num_observations == 4 || num_observations == 8, 'Sensor must measure in 4 or 8 directions.');
+
+% Get the probability of the correct measurement
+prob_correct_measurement = 1 - prob_1_bit_flip;
+
+% Get the size of the grid
+N = size(grid,1);
+
+% Get the possible number of states
+num_states = N*N;
+
+% Get the number of possible diferent observations
+max_number_obs = 2^num_observations;   % Number of cells that can be filled with sensor
+
+% Compute the transition matrix A from each cell to every other cell
+B = zeros(num_states, max_number_obs);
+
+% Fill the matrix assuming the 0 probability of bit-flip 
+for i=1:N
+    for j=1:N
+        
+        % Consider an hypotetical position for the robot
+        robot_pos = [i j];
+        robot_pos_index = sub2ind([N N], i, j);
+        
+        % Get the top_corner of a 3x3 square where the robot is positioned
+        top_corner = robot_pos - 2;
+
+        % Consider an empty measurement set
+        sensor_obs = zeros(3,3);
+        
+        % Get the measurement for that given state
+        for k=1:3
+            for m=1:3
+                % Check if we are outside the grid. If so, place an obstacle
+                if top_corner(1) + k < 1 || top_corner(2) + m < 1 || top_corner(1) + k > N || top_corner(2) + m > N
+                    sensor_obs(k,m) = 0;
+                else
+                    % If we are inside the grid, just check if there is an obstacle or not
+                    sensor_obs(k,m) = grid(top_corner(1) + k, top_corner(2) + m);
+                end
+            end
+        end
+        
+        % Encode the measurement into a number between 1-256
+        obs_index = encode_measurement(sensor_obs, num_observations);
+        
+        % Update the measurement matrix B
+        B(robot_pos_index, obs_index) = prob_correct_measurement;
+
+        % -----------------------------------------------------
+        % Handle the probabilities for 1 bitflip
+        % -----------------------------------------------------
+        
+        % Compute variations of the sensor measurement considering 1-bit
+        % flip possibility in the noise
+        noisy_obs_indexes = zeros(num_observations, 1);
+        counter = 1;
+
+        for k=1:3
+            for m=1:3
+                % Ignore the middle cell
+                if k ~= 2 || m ~=2
+                       
+                    % Ignore the diagonal cells if we consider only a
+                    % sensor with 4 directions for the observations
+                    if num_observations == 4 && ((k==1 && m==1) || (k==1 && m==3) || (k==3 && m==1) || (k==3 && m==3))
+                        continue;
+
+                    % Actually apply a bit flip a get the measurement
+                    % encoding
+                    else
+                        % Get a copy of the actual observation in that cell
+                        noisy_observation = sensor_obs;
+
+                        % Flip one bit to add noise
+                        if noisy_observation(k,m) == 0
+                            noisy_observation(k,m) = 1;
+                        else
+                            noisy_observation(k,m) = 0;
+                        end
+
+                        % Encode the noisy measurement into a number between
+                        % 1-2^num_observations
+                        noisy_obs_indexes(counter) = encode_measurement(noisy_observation, num_observations);
+                        counter = counter + 1;
+                    end
+                end
+            end
+        end
+
+        % Update the measurement matrix with the possible noise
+        % measurements
+        for k=1:num_observations
+            B(robot_pos_index, noisy_obs_indexes(k)) = prob_1_bit_flip / num_observations;
+        end
+    
+    end
+end
+
+end
+
+function [observation_index] = encode_measurement(measurement, num_observations)
+%ENCODE_MEASUREMENT Takes a 3x3 matrix of measurements and converts it into
+% an encoded measurement from 1-2^num_observations
+% It is assumed that num_observations is 4 or 8
+
+% Encode the individual obstacle measurements into one unique
+% measurement
+observation_index = 0;
+counter = 0;
+
+% Iterate over each cell
+for k=1:3
+    for m=1:3
+        if k==2 && m==2
+            % If we are in the midle square, skip it
+            continue;
+        
+        % Case where the sensor measures in 4 directions (top, right, left
+        % down)
+        elseif num_observations == 4
+
+            if (k==1 && m==1) || (k==1 && m==3) || (k==3 && m==1) || (k==3 && m==3)
+                continue
+            else
+                if measurement(k,m) == 1
+                    observation_index = observation_index + (2^counter);
+                end
+                counter = counter + 1;
+            end
+
+        % Case where the sensor measures in 8 directions (includes the
+        % diagonals)
+        else
+            if measurement(k,m) == 1
+                observation_index = observation_index + (2^counter);
+            end
+            counter = counter + 1;
+        end
+    end
+end
+
+% Shift everything by 1 such that we start in 1 and stop at 16 or 256
+observation_index = observation_index + 1;
+end
+
+
+function display_grid(ax, grid, robot_pos, grid_title, hit_test)
 
 % Clear previous visualization
 cla(ax);
@@ -355,7 +743,12 @@ end
 for i=1:N
     for j=1:N
         if grid(i,j) == 1
-            rectangle(ax, 'Position', [i-0.5, j-0.5, 1, 1], 'FaceColor', 'k');
+            % Check if we want to detect clicks on the rectangles or not
+            if hit_test == 0
+                rectangle(ax, 'Position', [i-0.5, j-0.5, 1, 1], 'FaceColor', 'k');
+            else
+                rectangle(ax, 'Position', [i-0.5, j-0.5, 1, 1], 'FaceColor', 'k', 'HitTest', 'on', 'ButtonDownFcn', @edit_map_callback);
+            end
         end
     end
 end
@@ -382,7 +775,7 @@ set(ax, 'XDir','reverse')
 set(ax,'XTick',1:N);
 set(ax,'YTick',1:N);
 ax.DataAspectRatio = [1 1 1];
-title(ax,'Robot Motion');
+title(ax,grid_title);
 end
 
 function display_heatmap(ax, prob_matrix)
@@ -437,5 +830,36 @@ for i=1:n_obs
 end
 
 % Check for individual holes in the diagonals and fill them
-% TODO
+changes = 1;
+
+while changes == 1
+    changes = 0;
+    % Check for the pattern: x 0
+    %                        0 x
+    for i=1:N
+        for j=1:N
+            if i < N && j < N
+                if grid(i,j) == 1 && grid(i+1, j+1) == 1 && grid(i+1,j) == 0 && grid(i,j+1) == 0
+                    % Set the right top value to 1
+                    grid(i, j+1) = 1;
+                    changes = 1;
+                end
+            end
+        end
+    end
+    % Check for the pattern: 0 x
+    %                        X 0
+    for i=1:N
+        for j=1:N
+            if i < N && j < N
+                if grid(i,j) == 0 && grid(i+1, j+1) == 0 && grid(i+1,j) == 1 && grid(i,j+1) == 1
+                    % Set the left top value to 1
+                    grid(i,j) = 1;
+                    changes = 1;
+                end
+            end
+        end
+    end
+end
+
 end
