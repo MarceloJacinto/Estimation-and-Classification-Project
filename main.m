@@ -18,6 +18,7 @@ bitflip_sensor = 0;     % The actual sensor bitflip probability
 robot_pos = [-1 -1];    % Unitialized robot position
 timer_period = 1;
 first_step = 1;         % Marks the first simulation step
+outside_walls = 1;
 
 % Create a UI to ask for the size of the grid, 4 or 8 movement directions 
 fig = uifigure('Name', 'Simulation Configuration', 'HandleVisibility', 'on');
@@ -365,6 +366,7 @@ function next_step_btn_click(~,~)
     
     % Increment the simulation step
     simulation_steps = simulation_steps + 1;
+    assignin('base', 'simulation_steps', simulation_steps);
     
     % Perform one simulation step update
     [robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B, sensor_direction, bitflip_sensor, first_step);
@@ -380,7 +382,6 @@ function next_step_btn_click(~,~)
     % Update robot_pos, prob_matrix, grid and num_iterations in the workspace
     assignin('base', 'robot_pos', robot_pos);
     assignin('base', 'prob_matrix', prob_matrix);
-    assignin('base', 'simulation_steps', simulation_steps);
     assignin('base', 'iterations_text', iterations_text);
     assignin('base', 'first_step', first_step);
 
@@ -388,8 +389,12 @@ end
 
 function [robot_pos, prob_matrix] = simulate_one_step(robot_pos, prob_matrix, grid, A, B, sensor_direction, bitflip_sensor, first_step)
     
+    simulation_steps = evalin('base', 'simulation_steps');
+
     % Move the robot
-    robot_pos = robot_motion(robot_pos, grid);
+    if simulation_steps > 1
+        robot_pos = robot_motion(robot_pos, grid);
+    end
 
     % Perform a measurement 
     measurement = sensor_model(robot_pos, grid, bitflip_sensor, sensor_direction);
@@ -444,6 +449,8 @@ function [sensor_obs] = sensor_model(robot_pos, grid, bitflip_sensor, sensor_dir
 % robot_pos - [row,col] of the actual robot position
 % grid - the grid of the world with obstacles
 
+    outside_walls = evalin('base', 'outside_walls');
+
     % Get the size of the grid
     N = size(grid,1);
     
@@ -459,7 +466,7 @@ function [sensor_obs] = sensor_model(robot_pos, grid, bitflip_sensor, sensor_dir
             % Check if we are outside the grid. If so, measure like an empty
             % state
             if top_corner(1) + i < 1 || top_corner(2) + j < 1 || top_corner(1) + i > N || top_corner(2) + j > N
-                sensor_obs(i,j) = 0;
+                sensor_obs(i,j) = outside_walls;
             else
                 % If we are inside the grid, just check if there is an obstacle or
                 % not
@@ -668,6 +675,8 @@ function [B] = compute_observation_matrix(grid, num_observations, prob_1_bit_fli
 
     assert(num_observations == 4 || num_observations == 8, 'Sensor must measure in 4 or 8 directions.');
     
+    outside_walls = evalin('base', 'outside_walls');
+
     % Get the probability of the correct measurement
     prob_correct_measurement = 1 - prob_1_bit_flip;
     
@@ -702,7 +711,7 @@ function [B] = compute_observation_matrix(grid, num_observations, prob_1_bit_fli
                 for m=1:3
                     % Check if we are outside the grid. If so, place an obstacle
                     if top_corner(1) + k < 1 || top_corner(2) + m < 1 || top_corner(1) + k > N || top_corner(2) + m > N
-                        sensor_obs(k,m) = 0;
+                        sensor_obs(k,m) = outside_walls;
                     else
                         % If we are inside the grid, just check if there is an obstacle or not
                         sensor_obs(k,m) = grid(top_corner(1) + k, top_corner(2) + m);
@@ -952,5 +961,4 @@ function [grid] = create_grid(N, n_obs)
             end
         end
     end
-
 end
